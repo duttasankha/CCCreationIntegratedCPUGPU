@@ -1,0 +1,17 @@
+Main buffer address: 0x7f56764a3000 	 Random buffer address: 0x17c9000 	 Size: 16777216 	 Number of offsets: 262144
+num_el_per_cacheline: 16
+number of elements: 4194304
+cycle_diff_1: 2554
+cycle_diff_2: 114
+cycle_diff_2: 9124	offsetCtrTemp: 8826
+
+
+=====================TEST #0============================
+
+cycle_diff_2: 9047	offsetCtrTemp: 113958
+
+
+=====================TEST #1============================
+
+cycle_diff_2: 6996	offsetCtrTemp: 126262
+ignore: 680459215.467093End of operation
