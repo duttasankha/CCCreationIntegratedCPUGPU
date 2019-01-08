@@ -18,13 +18,16 @@
 #define KB(X) ((X)*1024)
 typedef int datatype;
 
-void maccess(void* p)
+/*void maccess(void* p)
 {
   asm volatile ("mov (%0), %%rax\n"
     :
     : "c" (p)
     : "rax");
-}
+}*/
+
+static int load_data = 0;
+#define maccess(ADDR) { load_data = load_data ^ *((datatype*)ADDR); }
 
 uint64_t rdtsc() {
   uint64_t a, d;
@@ -97,7 +100,7 @@ int main(int argc,char *argv[]){
   populate_rand_addr_buff(buff_1,eviction_random,num_pages_1);
   printf("End populating\n");
   
-  eviction_set_1(eviction_random,num_pages_1);
+  evictSetDeterminationFunc(eviction_random,num_pages_1);
   
   free(buff_1);
   free(buff_2);
@@ -152,10 +155,11 @@ void populate_rand_addr_buff(datatype *buff,volatile uint64_t** eviction_random,
 }
 
 #define EVICT_SET_MISS_RATIO 0.99
+#define EVICT_SET_HIT_RATIO 0.99
 #define NUM_RNDS 5000
 #define THRESHOLD 400
 //This is the eviction set creation after discussing with daimeng
-void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int num_pages);
+void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int num_pages){
 
   size_t time,delta_1,delta_2;
 
@@ -225,7 +229,7 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
       evEndPtr++;
   } 
 
-  fprintf(stderr,"mr: %f \t Num of pages to reach eviction: %d\n\n",mr,evEndPtr);
+  fprintf(stderr,"mr: %f \t Num of page addresses to reach eviction: %d\n\n",mr,evEndPtr);
 
    for(int i =0 ; i< evEndPtr; i++)  
 	   flush((void *)eviction_random[i]);
@@ -261,7 +265,7 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
    memset(finalEvictBuff,NULL,evEndPtr*sizeof(uint64_t *));
    memset(idxBuff,0,evEndPtr*sizeof(uint64_t *)); // this is just to test the indexes of the selected page addresses
    
-   for(int rnds = 0;rnds<3;rnds++){
+   for(int rnds = 0;rnds<10;rnds++){
 
  	  int currPos = 1;
    	  int detectedPages = 0;
@@ -276,8 +280,18 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
            
 	    for(int k=currPos;k<evEndPtr;k++)
 	     flush((void *)tempEvictBuff[k]);
-	    
+	   
+/*	    if(detectedPages)*/
+/*	      for(int k=0;k<detectedPages;k++)*/
+/*	       flush((void *)finalEvictBuff[k]);*/
+
 	    maccess((void *)eviction_random[0]);
+	    asm volatile ("mfence");
+
+/*	    if(detectedPages)*/
+/*	      for(int k=0;k<detectedPages;k++)*/
+/*	       maccess((void *)finalEvictBuff[k]);*/
+
 	    asm volatile ("mfence");
 
             for(int k=currPos;k<evEndPtr;k++)
@@ -287,12 +301,12 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
   	    maccess((void *)eviction_random[0]);
 	    delta_1 = rdtsc() - time;
 
-	    if(delta_1>THRESHOLD)
+	    if(delta_1<THRESHOLD)
 	     mr += 1.0/NUM_RNDS;
 
 	  }
 
-	  if(mr<0.01){
+	  if(mr<EVICT_SET_HIT_RATIO){//EVICT_SET_MISS_RATIO
 	    finalEvictBuff[detectedPages] = tempEvictBuff[currPos-1];
 	    idxBuff[detectedPages] = currPos-1;
             detectedPages++;
@@ -319,7 +333,11 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
        delta_1 = rdtsc() - time;
 
        fprintf(stderr,"time: %5zu\n",delta_1);
-      
+
+/*       if(rnds==0)*/
+/*	  for(int i=0;i<detectedPages;i++)*/
+/*	   fprintf(stderr,"page index: %d \t address: %p\n",idxBuff[i],finalEvictBuff[i]);*/
+             
    }
 
 }
@@ -363,7 +381,7 @@ void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int 
 /*     //else{*/
 /*      *eviction_random[k+2];*/
 /*      *eviction_random[k+1];*/
-/*      *eviction_random[k];*/*/
+/*      *eviction_random[k];*/
 /*     //}*/
 /*     }	*/
 /*    //}*/

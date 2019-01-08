@@ -16,13 +16,16 @@
 #define KB(X) ((X)*1024)
 typedef int datatype;
 
-void maccess(void* p)
-{
-  asm volatile ("movq (%0), %%rax\n"
-    :
-    : "c" (p)
-    : "rax");
-}
+/*void maccess(void* p)*/
+/*{*/
+/*  asm volatile ("movq (%0), %%rax\n"*/
+/*    :*/
+/*    : "c" (p)*/
+/*    : "rax");*/
+/*}*/
+
+static int load_data = 0;
+#define maccess(ADDR) { load_data = load_data ^ *((datatype*)ADDR); }
 
 uint64_t rdtsc() {
   uint64_t a, d;
@@ -41,7 +44,7 @@ void flush(void* p) {
 }
 
 void populate_rand_addr_buff(datatype *buff,volatile uint64_t** eviction_random,unsigned int num_pages);
-
+void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int num_pages);
 int main(int argc,char *argv[]){
 
 	cl_platform_id *platform;
@@ -160,7 +163,7 @@ int main(int argc,char *argv[]){
 	volatile uint64_t** eviction_random;
 
 	size_t buff_size_1,buff_size_2;
-  	buff_size_1 = MB(40);  //determining buffer 1 size 
+  	buff_size_1 = MB(64);  //determining buffer 1 size 
 	buff_size_2 = MB(8);  //determining buffer 2 size 
 
 	printf("Size of buff_size_1: %lu\n",buff_size_1);
@@ -241,7 +244,9 @@ int main(int argc,char *argv[]){
   	populate_rand_addr_buff(buff_1_host,eviction_random,num_pages_1);
   	printf("End populating\n");
 
-	eviction_set(eviction_random,num_pages_1);
+	evictSetDeterminationFunc(eviction_random,num_pages_1);
+
+	printf("Back from function\n");
 
 	/*cl_mem buff_2 = clCreateBuffer(ctx,CL_MEM_READ_WRITE|CL_MEM_USE_HOST_PTR,10*sizeof(ushort),buff_1,&err);
 	if(err!=CL_SUCCESS){
@@ -273,19 +278,19 @@ int main(int argc,char *argv[]){
 	   return EXIT_FAILURE;
 	}*/
 
-	size_t globalSize = 1;	
-	size_t localSize = 1;//kern_pref_wgsize_mult*2;//
+/*	size_t globalSize = 1;	*/
+/*	size_t localSize = 1;//kern_pref_wgsize_mult*2;//*/
 
-	//for(int i=0;i<10;i++){
+/*	//for(int i=0;i<10;i++){*/
 
-	  err = clEnqueueNDRangeKernel(cQ,kern,1,NULL,&globalSize,&localSize,0,NULL,NULL);
-	  if(err!=CL_SUCCESS){
-	   printf("Unable to launch a kernel \t Error: %d\n",err);
-	   return EXIT_FAILURE;
-	  }
+/*	  err = clEnqueueNDRangeKernel(cQ,kern,1,NULL,&globalSize,&localSize,0,NULL,NULL);*/
+/*	  if(err!=CL_SUCCESS){*/
+/*	   printf("Unable to launch a kernel \t Error: %d\n",err);*/
+/*	   return EXIT_FAILURE;*/
+/*	  }*/
 	//}
 
-	clFinish(cQ);
+//	clFinish(cQ);
 	
 	clSVMFree(ctx,buff_1_host);
 	clSVMFree(ctx,buff_2_host);
@@ -343,75 +348,191 @@ void populate_rand_addr_buff(datatype *buff,volatile uint64_t** eviction_random,
 
 }
 
-void eviction_set(volatile uint64_t** eviction_random,unsigned int num_pages){//datatype *buff,
-
-  /*printf("\n\n\n======================================================================\n\n");
-
-  for(int i=0;i<100;i++)
-    printf("%d) \t eviction: %p \t deref eviction: %d\n",i,eviction_random[i],*eviction_random[i]);*/
+#define EVICT_SET_MISS_RATIO 0.99
+#define EVICT_SET_HIT_RATIO 0.99
+#define NUM_RNDS 5000
+#define THRESHOLD 400
+//This is the eviction set creation after discussing with daimeng
+void evictSetDeterminationFunc(volatile uint64_t** eviction_random,unsigned int num_pages){
 
   size_t time,delta_1,delta_2;
- 
+
+  fprintf(stderr,"Starting the creation of the eviction buffer\n");
+  fprintf(stderr,"Flushing the target address\n"); 
+
+  flush((void *)eviction_random[0]);
+  
+  fprintf(stderr,"Non-cached access time\n");
   time = rdtsc();
-  *eviction_random[0];
+  maccess((void *)eviction_random[0]);
   delta_1 = rdtsc() - time;
   
-  printf("delta_0: %5zu\t", delta_1);
-  
+  printf("delta_0: %5zu\n", delta_1);
+
+  fprintf(stderr,"Accessing the target address again\n");  
   time = rdtsc();
-  *eviction_random[0];
+  maccess((void *)eviction_random[0]);
   delta_1 = rdtsc() - time;
   
   printf("delta_1: %5zu\n", delta_1);
 
-  int ctr=1;
-  
-  while(ctr<num_pages-2){
+  int evEndPtr=1;
+  float mr;
+  int testCtr=0;
+  while(evEndPtr<num_pages){
+    
+/*     if(!(evEndPtr%5))*/
+/*      fprintf(stderr,"currernt ctr : %d\t",evEndPtr);*/
 
-    /*void *k;
-    k = *eviction_random[ctr];
-    maccess(k);*/
-    //time = rdtsc();
-    asm volatile ("CPUID");
-    //maccess((void*)eviction_random[0]);
-    //delta_1 = rdtsc() - time;
+     mr=0;
+     for(int i =0 ; i< NUM_RNDS;i++){
+ 	  
+	  for(int i =0 ; i< evEndPtr; i++)  
+	   flush((void *)eviction_random[i]);
+	  
+          //Bringing inside the cache
+	  time = rdtsc();
+	  maccess((void *)eviction_random[0]);
+          delta_1 = rdtsc() - time;
+  	
+	  if(!testCtr)
+	    fprintf(stderr,"test access (non-cached): %5zu\n",delta_1);
+	   
+          for(int i=1; i<evEndPtr; i++)
+	   maccess((void *)eviction_random[i]);  
 
-    time = rdtsc();
-    *eviction_random[0];
-    delta_1 = rdtsc() - time;
+	  time = rdtsc();
+  	  maccess((void *)eviction_random[0]);
+	  delta_1 = rdtsc() - time;
 
-    for(int j=0;j<5000;j++){ 
-    //if(ctr%2){
-      for(int k=0;k<ctr;k++){
-      *eviction_random[k];
-      *eviction_random[k+1];
-      *eviction_random[k+2];
-     //}
-     //else{
-      *eviction_random[k+2];
-      *eviction_random[k+1];
-      *eviction_random[k];
-     //}
-     }	
-    }
-
-    time = rdtsc();
-    *eviction_random[0];
-    delta_1 = rdtsc() - time;
-  
-    if(delta_1>300)
-    printf("ctr: %d \t delta_1: %5zu\n",ctr, delta_1);
-   
-   //for (int i = 0; i < 3000; ++i)
-    //sched_yield();
-
-    //if(delta_1>500)
-     //break;
+	  if(!testCtr){
+	   fprintf(stderr,"test access (cached): %5zu\n",delta_1);
+            testCtr++;
+	  }
+	  
+	  if(delta_1>THRESHOLD)
+	   mr += 1.0/NUM_RNDS;
+     }
      
-    //for(int k=0;k<ctr;k++)
-     //flush((void *)eviction_random[k]);
+/*     if(!(evEndPtr%5))*/
+/*      fprintf(stderr,"mr : %f\n",mr);*/
 
-    ctr++;
-  }
+     if(mr>EVICT_SET_MISS_RATIO)
+      break;
+     else
+      evEndPtr++;
+  } 
+
+  fprintf(stderr,"mr: %f \t Num of page addresses to reach eviction: %d\n\n",mr,evEndPtr);
+
+   for(int i =0 ; i< evEndPtr; i++)  
+	   flush((void *)eviction_random[i]);
+
+   time = rdtsc();
+   maccess((void *)eviction_random[0]);
+   delta_1 = rdtsc() - time;
+  	
+   fprintf(stderr,"Acess after flush: %5zu\n",delta_1);
+
+   time = rdtsc();
+   maccess((void *)eviction_random[0]);
+   delta_1 = rdtsc() - time;
+  	
+   fprintf(stderr,"Acess again: %5zu\n",delta_1);
+	   
+   for(int i=1; i<evEndPtr; i++)
+     maccess((void *)eviction_random[i]);  
+
+   time = rdtsc();
+   maccess((void *)eviction_random[0]);
+   delta_1 = rdtsc() - time;
+
+   fprintf(stderr,"Accessing after accessing calculated eviction set: %5zu\n",delta_1);
+
+   fprintf(stderr,"Creating the final eviction set\n");
+
+   volatile uint64_t** tempEvictBuff = (volatile uint64_t **) malloc(evEndPtr*sizeof(uint64_t *));
+   volatile uint64_t** finalEvictBuff = (volatile uint64_t **) malloc(evEndPtr*sizeof(uint64_t *));
+   int *idxBuff = (int *)malloc(evEndPtr*sizeof(int));
+
+   memcpy(tempEvictBuff,eviction_random+1,evEndPtr*sizeof(uint64_t *));
+   memset(finalEvictBuff,NULL,evEndPtr*sizeof(uint64_t *));
+   memset(idxBuff,0,evEndPtr*sizeof(uint64_t *)); // this is just to test the indexes of the selected page addresses
+   
+   for(int rnds = 0;rnds<10;rnds++){
+
+ 	  int currPos = 0;
+   	  int detectedPages = 0;
+
+	  while(currPos<evEndPtr-1){
+	   
+	   mr=0;
+
+	   for(int j=0;j<NUM_RNDS;j++){
+		
+	    flush((void *)eviction_random[0]);
+           
+	    for(int k=currPos+1;k<evEndPtr;k++)
+	     flush((void *)tempEvictBuff[k]);
+	   
+/*	    if(detectedPages)*/
+/*	      for(int k=0;k<detectedPages;k++)*/
+/*	       flush((void *)finalEvictBuff[k]);*/
+
+	    maccess((void *)eviction_random[0]);
+	    asm volatile ("mfence");
+
+/*	    if(detectedPages)*/
+/*	      for(int k=0;k<detectedPages;k++)*/
+/*	       maccess((void *)finalEvictBuff[k]);*/
+
+//	    asm volatile ("mfence");
+
+            for(int k=currPos+1;k<evEndPtr;k++)
+	      maccess((void *)tempEvictBuff[k]);  
+
+	    time = rdtsc();
+  	    maccess((void *)eviction_random[0]);
+	    delta_1 = rdtsc() - time;
+
+	    if(delta_1>THRESHOLD)
+	     mr += 1.0/NUM_RNDS;
+
+	  }
+
+	  if(mr<EVICT_SET_HIT_RATIO){
+	    finalEvictBuff[detectedPages] = tempEvictBuff[currPos];
+	    idxBuff[detectedPages] = currPos;
+            detectedPages++;
+	  }
+	
+	  currPos++;
+       }
+
+       fprintf(stderr,"detected pages: %d\t",detectedPages);
+
+       flush((void *)eviction_random[0]);
+	
+       for(int k=0;k<detectedPages;k++)
+         flush((void *)finalEvictBuff[k]);
+
+       maccess((void *)eviction_random[0]);
+       asm volatile ("mfence");
+
+       for(int k=0;k<detectedPages;k++)
+	  maccess((void *)finalEvictBuff[k]);
+ 	
+       time = rdtsc();
+       maccess((void *)eviction_random[0]);
+       delta_1 = rdtsc() - time;
+
+       fprintf(stderr,"time: %5zu\n",delta_1);
+
+/*       if(rnds==0)*/
+/*	  for(int i=0;i<detectedPages;i++)*/
+/*	   fprintf(stderr,"page index: %d \t address: %p\n",idxBuff[i],finalEvictBuff[i]);*/
+             
+   }
 
 }
+
