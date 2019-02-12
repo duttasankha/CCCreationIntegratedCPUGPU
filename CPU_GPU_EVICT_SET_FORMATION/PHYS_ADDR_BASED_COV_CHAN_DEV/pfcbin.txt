@@ -1,0 +1,23 @@
+Buffer Size: 4 MB
+Number of elements: 1048576
+Buff start addr: 0x7fcf1e4d2000
+CFG[0]: 2	CFG[1]: 2	CFG[2]: 2	CFG[3]: 414f2e	CFG[4]: 41412e	CFG[4]: 4104d1	CFG[4]: 4120d1
+Instructions Issued                  :             12582918
+Unhalted core cycles                 :              7452602
+Unhalted reference cycles            :              6935250
+llc.reference                        :               147881
+llc.miss                             :               100567
+mem_load_uops_retired.l3_hit         :                   99
+mem_load_uops_retired.l3_miss        :                  126
+
+
+Instructions Issued                  :             12582919
+Unhalted core cycles                 :              7493409
+Unhalted reference cycles            :              6972875
+llc.reference                        :               147120
+llc.miss                             :                92801
+mem_load_uops_retired.l3_hit         :                  161
+mem_load_uops_retired.l3_miss        :                  238
+
+
+IGNORE: 1099510579300
